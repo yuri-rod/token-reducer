@@ -50,7 +50,7 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
                 "protocolVersion": "2024-11-05",
                 "serverInfo": {
                     "name": "token-reducer",
-                    "version": "0.1.0"
+                    "version": env!("CARGO_PKG_VERSION")
                 },
                 "capabilities": {
                     "tools": {}
