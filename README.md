@@ -1,82 +1,70 @@
 # token-reducer
 
-[![CI](https://github.com/yuri-rod/token-reducer/actions/workflows/ci.yml/badge.svg)](https://github.com/yuri-rod/token-reducer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/yuri-rod/token-reducer?color=blue)](https://github.com/yuri-rod/token-reducer/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+Summarize command output, logs, JSON arrays, and Git diffs before adding them to a coding-agent prompt.
 
-**High-performance token and context compressor for coding agents, AGY, and developer CLI tools.**
+Use it when a build produces hundreds of passing test lines but you need the failure, or when a lockfile diff obscures the source changes. Compression is deliberately lossy. Keep the original output when you need a complete diagnostic record or an applicable patch.
 
-`token-reducer` shrinks compiler logs, test outputs, AST git diffs, and large JSON payloads by **60% to 98%**, cutting LLM token bills and preventing context dilution for tools like Codex, Claude Code, Google Antigravity (AGY), Aider, and Cursor.
+## Install
 
-```bash
-# Wrap command execution with real-time compression & token stats
-$ token-reducer run -- cargo test
-$ token-reducer run -- npm test
-$ token-reducer run -- pytest
+With [Rust stable](https://www.rust-lang.org/tools/install) installed:
 
-# Pipe raw noisy terminal outputs
-$ git diff | token-reducer pipe --type diff
-$ cat big_response.json | token-reducer pipe --type json
-
-# Start Model Context Protocol (MCP) server for AGY, Claude, and Codex
-$ token-reducer mcp
-
-# Install as native Google Antigravity (AGY) skill
-$ token-reducer agy install
+```sh
+cargo install --locked --git https://github.com/yuri-rod/token-reducer.git
 ```
 
----
+To develop locally:
 
-## Benchmark Results
-
-| Workload | Raw Tokens | Reduced Tokens | Reduction | Description |
-| :--- | :---: | :---: | :---: | :--- |
-| **Lockfile Git Diff** (`Cargo.lock` / `package-lock.json`) | **3,269** | **63** | **98.1%** | Collapses dependency lockfile hash spam into compact summary line. |
-| **JSON Array Payload** (50 records) | **1,203** | **111** | **90.8%** | Preserves schema and boundary items, collapses repetitive middle. |
-| **Test Suite Log** (150 passing tests + 1 failure) | **266** | **157** | **41.0%** | Omits passing test noise and internal runtime stack frames. |
-
----
-
-## Features
-
-1. **Test Suite & Compiler Squeezer**:
-   - Strips ANSI color sequences and carriage return noise.
-   - Collapses passing test lines while highlighting root failures and file:line locations.
-   - Truncates repetitive runtime stack trace frames (`node:internal/`, `core::ops::function`).
-2. **AST & Lockfile Diff Pruner**:
-   - Compresses large dependency lockfile diffs into a 1-line summary.
-   - Trims bloated unchanged context lines down to essential 2-line anchors.
-3. **Structured JSON Reducer**:
-   - Preserves typed object shapes and boundary examples while omitting array bloat.
-4. **First-Class AGY & MCP Support**:
-   - JSON-RPC 2.0 stdio MCP server for Claude Desktop, Codex, and Cursor.
-   - Automatic skill installer for Google Antigravity (AGY).
-
----
-
-## Installation
-
-### Via Cargo
-
-```bash
-cargo install --git https://github.com/yuri-rod/token-reducer.git
-```
-
-### From Source
-
-```bash
+```sh
 git clone https://github.com/yuri-rod/token-reducer.git
 cd token-reducer
-cargo build --release
-cp target/release/token-reducer /usr/local/bin/
+cargo build --locked
 ```
 
----
+The development binary is `target/debug/token-reducer`.
 
-## Model Context Protocol (MCP) Configuration
+## Try it
 
-Add `token-reducer` to your `claude_desktop_config.json` or MCP settings:
+This synthetic example preserves a TypeScript failure while collapsing a passing test:
+
+```sh
+printf 'PASS src/ok.ts\nFAIL src/broken.ts\nError: missing config.ts\n' | token-reducer pipe --type log
+```
+
+Compressed text goes to stdout:
+
+```text
+[token-reducer] Collapsed 1 passing test lines
+FAIL src/broken.ts
+Error: missing config.ts
+```
+
+Token and byte counts go to stderr. For a command that edits or reads your project:
+
+```sh
+token-reducer run -- cargo test
+git diff | token-reducer pipe --type diff
+token-reducer diff -- --stat
+```
+
+`run` waits for the child to finish, combines stdout followed by stderr, and then compresses it. It preserves the child's exit code; termination without an exit code returns 1. `diff` preserves Git's status and error output, including `git diff --exit-code` returning 1 when changes exist. These wrappers do not stream output or preserve ordering between stdout and stderr.
+
+## Reduction modes
+
+| Mode | Behavior |
+| --- | --- |
+| `log` | Strip ANSI escapes; collapse recognized passing-test lines, repeated empty lines, some internal stack frames, and warning headers after the first two |
+| `diff` | Summarize recognized lockfile and minified-file sections with added/deleted line counts; retain other diff text |
+| `json` | For arrays longer than five items, retain the first two and last item and insert an omission string; recurse into objects and retained arrays |
+| `ansi` | Remove ANSI escape sequences and carriage-return characters without applying the other reducers |
+| `auto` | Choose a reducer from the beginning and ending of the input; use an explicit mode when its guess is unsuitable |
+
+Diff handling is text-based. JSON output is a summary, not a replacement API response: omission strings can change an array's element types, and omitted entries need not be similar. Small JSON documents can become larger after pretty-printing. Invalid JSON is returned unchanged.
+
+[Token statistics](src/tokens.rs) use `cl100k_base`, with a bytes-divided-by-four fallback if loading that tokenizer fails. These counts are not a billing estimate for every model. Savings depend on the input; the tool's summary reports zero savings rather than a negative percentage when output grows.
+
+## MCP over stdio
+
+Configure a local MCP client to launch the installed executable:
 
 ```json
 {
@@ -89,8 +77,23 @@ Add `token-reducer` to your `claude_desktop_config.json` or MCP settings:
 }
 ```
 
----
+The server provides `reduce_text` and `reduce_exec`. `reduce_exec` runs a shell command with the server process's permissions and reports command failure with `isError: true`. Enable it only for clients allowed to execute local commands. There is no sandbox, timeout, or output-size limit. The server accepts newline-delimited JSON-RPC over stdin/stdout and advertises protocol version `2024-11-05`; compatibility with a particular client must be checked there.
 
-## License
+The optional `agy install` command writes or replaces its skill file under the user's Gemini plugin directory. `agy analyze` reads up to five discovered local transcript files. Neither command is required for the CLI or synthetic examples above.
 
-MIT License.
+## Implementation and tests
+
+- [Reducers](src/compressors) contain the log, diff, JSON, and ANSI transformations and their unit tests.
+- [CLI execution](src/main.rs) captures command output and preserves process outcomes.
+- [Command regressions](tests/command_failures.rs) check successful and failed child commands, Git errors, and MCP execution failures using synthetic inputs.
+- [MCP transport](src/mcp.rs) exposes the same reducers over stdio.
+
+```sh
+cargo check --locked
+cargo test --locked
+cargo run --locked --release -- benchmark
+```
+
+`benchmark` runs three built-in synthetic samples and prints their tokenizer counts. It does not measure throughput or represent production workloads. CI runs the checks on Linux and macOS. Contributions should include a failing example for a reduction bug and preserve diagnostics users need to understand failures.
+
+The manifest declares the MIT license. This checkout currently has no standalone license file.

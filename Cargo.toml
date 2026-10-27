@@ -2,7 +2,7 @@
 name = "token-reducer"
 version = "0.1.0"
 edition = "2021"
-description = "High-performance token and context compressor for coding agents, AGY, and developer CLI tools"
+description = "Summarize logs, command output, JSON arrays, and Git diffs for coding-agent context"
 license = "MIT"
 
 [dependencies]

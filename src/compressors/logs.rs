@@ -16,7 +16,8 @@ pub fn compress_logs(input: &str) -> String {
 
         // 1. Filter passing test noise
         if (trimmed.starts_with("test ") && trimmed.ends_with("... ok"))
-            || (trimmed.starts_with("PASS ") && trimmed.ends_with(".js") || trimmed.ends_with(".ts"))
+            || (trimmed.starts_with("PASS ")
+                && (trimmed.ends_with(".js") || trimmed.ends_with(".ts")))
             || (trimmed.starts_with("✓ ") || trimmed.starts_with("✔ "))
             || (trimmed.starts_with("=== RUN ") || (trimmed.starts_with("--- PASS:")))
         {
@@ -57,7 +58,13 @@ pub fn compress_logs(input: &str) -> String {
             omitted_internal_frames += 1;
             continue;
         } else if omitted_internal_frames > 0 {
-            output_lines.push(Box::leak(format!("    [... {} internal runtime stack frames omitted ...]", omitted_internal_frames).into_boxed_str()));
+            output_lines.push(Box::leak(
+                format!(
+                    "    [... {} internal runtime stack frames omitted ...]",
+                    omitted_internal_frames
+                )
+                .into_boxed_str(),
+            ));
             omitted_internal_frames = 0;
         }
 
@@ -70,15 +77,27 @@ pub fn compress_logs(input: &str) -> String {
     }
 
     if omitted_internal_frames > 0 {
-        output_lines.push(Box::leak(format!("    [... {} internal runtime stack frames omitted ...]", omitted_internal_frames).into_boxed_str()));
+        output_lines.push(Box::leak(
+            format!(
+                "    [... {} internal runtime stack frames omitted ...]",
+                omitted_internal_frames
+            )
+            .into_boxed_str(),
+        ));
     }
 
     let mut result = String::new();
     if omitted_passing_tests > 0 {
-        result.push_str(&format!("[safepoint] Collapsed {} passing test lines\n", omitted_passing_tests));
+        result.push_str(&format!(
+            "[token-reducer] Collapsed {} passing test lines\n",
+            omitted_passing_tests
+        ));
     }
     if warning_count > 2 {
-        result.push_str(&format!("[safepoint] + {} additional compiler warnings omitted\n", warning_count - 2));
+        result.push_str(&format!(
+            "[token-reducer] + {} additional compiler warnings omitted\n",
+            warning_count - 2
+        ));
     }
 
     result.push_str(&output_lines.join("\n"));
@@ -88,6 +107,17 @@ pub fn compress_logs(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_typescript_failures_and_source_paths() {
+        let raw = "PASS src/ok.ts\nFAIL src/broken.ts\nError: could not read src/config.ts\n  at src/worker.ts\n";
+        let compressed = compress_logs(raw);
+        assert!(!compressed.contains("PASS src/ok.ts"));
+        assert!(compressed.contains("FAIL src/broken.ts"));
+        assert!(compressed.contains("Error: could not read src/config.ts"));
+        assert!(compressed.contains("at src/worker.ts"));
+        assert!(compressed.contains("Collapsed 1 passing test lines"));
+    }
 
     #[test]
     fn test_compress_logs() {

@@ -1,15 +1,18 @@
+use colored::*;
+use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
 use std::path::PathBuf;
-use colored::*;
-use serde_json::Value;
 
 use crate::compressors::{self, ContentType};
 use crate::tokens::TokenStats;
 
 pub fn install_agy_skill() -> io::Result<()> {
     let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) else {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "HOME directory not found"));
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "HOME directory not found",
+        ));
     };
 
     let skill_dir = home
@@ -24,7 +27,7 @@ pub fn install_agy_skill() -> io::Result<()> {
 
     let skill_md_content = r#"---
 name: token-reducer
-description: Compresses noisy test results, compiler errors, JSON, and diffs to save 60-90% LLM tokens.
+description: Summarizes test output, compiler errors, JSON, and diffs with tokenizer counts.
 ---
 
 # token-reducer
@@ -56,20 +59,28 @@ $ token-reducer run -- cargo test
 
 pub fn analyze_agy_sessions() -> io::Result<()> {
     let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) else {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "HOME directory not found"));
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "HOME directory not found",
+        ));
     };
 
-    let brain_dir = home
-        .join(".gemini")
-        .join("antigravity-cli")
-        .join("brain");
+    let brain_dir = home.join(".gemini").join("antigravity-cli").join("brain");
 
     if !brain_dir.is_dir() {
-        println!("No Antigravity brain sessions found at {}", brain_dir.display());
+        println!(
+            "No Antigravity brain sessions found at {}",
+            brain_dir.display()
+        );
         return Ok(());
     }
 
-    println!("\n{}", "=== Antigravity (AGY) Token Reduction Analysis ===".cyan().bold());
+    println!(
+        "\n{}",
+        "=== Antigravity (AGY) Token Reduction Analysis ==="
+            .cyan()
+            .bold()
+    );
 
     let mut total_orig_tokens = 0usize;
     let mut total_reduced_tokens = 0usize;
@@ -78,14 +89,18 @@ pub fn analyze_agy_sessions() -> io::Result<()> {
     let mut transcripts = Vec::new();
     if let Ok(entries) = fs::read_dir(brain_dir) {
         for entry in entries.flatten() {
-            let transcript = entry.path().join(".system_generated").join("logs").join("transcript.jsonl");
+            let transcript = entry
+                .path()
+                .join(".system_generated")
+                .join("logs")
+                .join("transcript.jsonl");
             if transcript.is_file() {
                 transcripts.push(transcript);
             }
         }
     }
 
-    // Take top 5 newest transcripts
+    // Inspect at most five discovered transcripts.
     transcripts.truncate(5);
 
     for transcript in transcripts {
@@ -118,10 +133,20 @@ pub fn analyze_agy_sessions() -> io::Result<()> {
         0.0
     };
 
-    println!("Analyzed {} recent AGY transcript steps", analyzed_steps.to_string().yellow().bold());
+    println!(
+        "Analyzed {} local AGY transcript steps",
+        analyzed_steps.to_string().yellow().bold()
+    );
     println!("Original Tokens:  {}", total_orig_tokens.to_string().red());
-    println!("Reduced Tokens:   {}", total_reduced_tokens.to_string().green());
-    println!("Tokens Saved:     {} ({:.1}% reduction)", saved.to_string().cyan().bold(), pct);
+    println!(
+        "Reduced Tokens:   {}",
+        total_reduced_tokens.to_string().green()
+    );
+    println!(
+        "Tokens Saved:     {} ({:.1}% reduction)",
+        saved.to_string().cyan().bold(),
+        pct
+    );
     println!();
 
     Ok(())

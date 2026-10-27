@@ -1,7 +1,7 @@
-use std::io::{self, BufRead, Write};
-use std::process::Command;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::io::{self, BufRead, Write};
+use std::process::Command;
 
 use crate::compressors::{self, ContentType};
 use crate::tokens::TokenStats;
@@ -67,7 +67,7 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
                 "tools": [
                     {
                         "name": "reduce_text",
-                        "description": "Compress noisy logs, compiler errors, or JSON to save 60-90% LLM tokens",
+                        "description": "Summarize logs, diffs, or JSON and report tokenizer counts",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -134,12 +134,13 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
                         Command::new("sh").args(["-c", command]).output()
                     };
 
-                    let (stdout_str, stderr_str) = match output {
+                    let (stdout_str, stderr_str, failed) = match output {
                         Ok(out) => (
                             String::from_utf8_lossy(&out.stdout).to_string(),
                             String::from_utf8_lossy(&out.stderr).to_string(),
+                            !out.status.success(),
                         ),
-                        Err(e) => (String::new(), format!("Execution error: {}", e)),
+                        Err(e) => (String::new(), format!("Execution error: {}", e), true),
                     };
 
                     let combined = if stderr_str.is_empty() {
@@ -155,6 +156,7 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": {
+                            "isError": failed,
                             "content": [
                                 {
                                     "type": "text",

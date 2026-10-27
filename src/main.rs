@@ -1,7 +1,7 @@
-use std::io::{self, Read};
-use std::process::Command;
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::*;
+use std::io::{self, Read};
+use std::process::Command;
 
 use token_reducer::agy;
 use token_reducer::compressors::{self, ContentType};
@@ -9,7 +9,11 @@ use token_reducer::mcp::run_mcp_server;
 use token_reducer::tokens::TokenStats;
 
 #[derive(Parser)]
-#[command(name = "token-reducer", version, about = "High-performance token and context compressor for coding agents, AGY, and developer CLI tools")]
+#[command(
+    name = "token-reducer",
+    version,
+    about = "Summarize logs, command output, JSON arrays, and Git diffs for coding-agent context"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -17,7 +21,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Wrap and execute a command, printing compressed output and token stats", trailing_var_arg = true)]
+    #[command(
+        about = "Wrap and execute a command, printing compressed output and token stats",
+        trailing_var_arg = true
+    )]
     Run {
         #[arg(short = 't', long = "type", value_enum, default_value_t = FormatChoice::Auto)]
         format: FormatChoice,
@@ -32,7 +39,10 @@ enum Commands {
         format: FormatChoice,
     },
 
-    #[command(about = "Run git diff with automatic lockfile and context token reduction", trailing_var_arg = true)]
+    #[command(
+        about = "Run git diff with automatic lockfile and context token reduction",
+        trailing_var_arg = true
+    )]
     Diff {
         #[arg(help = "Arguments passed directly to git diff")]
         args: Vec<String>,
@@ -47,7 +57,7 @@ enum Commands {
         action: AgyAction,
     },
 
-    #[command(about = "Run token reduction benchmarks across real-world workloads")]
+    #[command(about = "Compare token counts on built-in synthetic samples")]
     Benchmark,
 }
 
@@ -83,11 +93,7 @@ fn main() -> io::Result<()> {
 
     match cli.command {
         Commands::Run { format, command } => {
-            let output = if cfg!(target_os = "windows") {
-                Command::new(&command[0]).args(&command[1..]).output()?
-            } else {
-                Command::new(&command[0]).args(&command[1..]).output()?
-            };
+            let output = Command::new(&command[0]).args(&command[1..]).output()?;
 
             let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
@@ -102,7 +108,13 @@ fn main() -> io::Result<()> {
             let stats = TokenStats::compute(&combined, &compressed);
 
             println!("{}", compressed);
-            eprintln!("\n{}", format!("[token-reducer] {}", stats.format_summary()).green().bold());
+            eprintln!(
+                "\n{}",
+                format!("[token-reducer] {}", stats.format_summary())
+                    .green()
+                    .bold()
+            );
+            std::process::exit(output.status.code().unwrap_or(1));
         }
 
         Commands::Pipe { format } => {
@@ -113,18 +125,30 @@ fn main() -> io::Result<()> {
             let stats = TokenStats::compute(&input, &compressed);
 
             print!("{}", compressed);
-            eprintln!("\n{}", format!("[token-reducer] {}", stats.format_summary()).green().bold());
+            eprintln!(
+                "\n{}",
+                format!("[token-reducer] {}", stats.format_summary())
+                    .green()
+                    .bold()
+            );
         }
 
         Commands::Diff { args } => {
             let output = Command::new("git").arg("diff").args(&args).output()?;
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
             let diff_raw = String::from_utf8_lossy(&output.stdout).to_string();
 
             let compressed = compressors::compress(&diff_raw, ContentType::Diff);
             let stats = TokenStats::compute(&diff_raw, &compressed);
 
             println!("{}", compressed);
-            eprintln!("\n{}", format!("[token-reducer] {}", stats.format_summary()).green().bold());
+            eprintln!(
+                "\n{}",
+                format!("[token-reducer] {}", stats.format_summary())
+                    .green()
+                    .bold()
+            );
+            std::process::exit(output.status.code().unwrap_or(1));
         }
 
         Commands::Mcp => {
@@ -137,7 +161,10 @@ fn main() -> io::Result<()> {
         },
 
         Commands::Benchmark => {
-            println!("\n{}", "=== Token Reducer Benchmark Suite ===".cyan().bold());
+            println!(
+                "\n{}",
+                "=== Token Reducer Benchmark Suite ===".cyan().bold()
+            );
 
             // 1. Rust test output
             let rust_log = r#"
@@ -171,7 +198,10 @@ test result: FAILED. 1 failed; 149 passed; 0 ignored
 "#;
             let comp_rust = compressors::compress(rust_log, ContentType::Log);
             let stats_rust = TokenStats::compute(rust_log, &comp_rust);
-            println!("1. Test Suite (150 tests): {}", stats_rust.format_summary().green());
+            println!(
+                "1. Synthetic test-log excerpt: {}",
+                stats_rust.format_summary().green()
+            );
 
             // 2. Large Lockfile Git Diff
             let mut diff_raw = String::from("diff --git a/Cargo.lock b/Cargo.lock\nindex 123456..789abc 100644\n--- a/Cargo.lock\n+++ b/Cargo.lock\n");
@@ -181,18 +211,29 @@ test result: FAILED. 1 failed; 149 passed; 0 ignored
             diff_raw.push_str("diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n-fn old() {}\n+fn new() {}\n");
             let comp_diff = compressors::compress(&diff_raw, ContentType::Diff);
             let stats_diff = TokenStats::compute(&diff_raw, &comp_diff);
-            println!("2. Git Diff with Lockfile: {}", stats_diff.format_summary().green());
+            println!(
+                "2. Git Diff with Lockfile: {}",
+                stats_diff.format_summary().green()
+            );
 
             // 3. Large JSON payload
             let mut json_raw = String::from("[");
             for i in 0..50 {
-                if i > 0 { json_raw.push(','); }
-                json_raw.push_str(&format!(r#"{{"id": {}, "name": "user_{}", "active": true, "role": "member"}}"#, i, i));
+                if i > 0 {
+                    json_raw.push(',');
+                }
+                json_raw.push_str(&format!(
+                    r#"{{"id": {}, "name": "user_{}", "active": true, "role": "member"}}"#,
+                    i, i
+                ));
             }
             json_raw.push(']');
             let comp_json = compressors::compress(&json_raw, ContentType::Json);
             let stats_json = TokenStats::compute(&json_raw, &comp_json);
-            println!("3. JSON Array (50 records): {}", stats_json.format_summary().green());
+            println!(
+                "3. JSON Array (50 records): {}",
+                stats_json.format_summary().green()
+            );
             println!();
         }
     }
