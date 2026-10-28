@@ -2,7 +2,7 @@ use colored::*;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::compressors::{self, ContentType};
 use crate::tokens::TokenStats;
@@ -66,7 +66,10 @@ pub fn analyze_agy_sessions() -> io::Result<()> {
     };
 
     let brain_dir = home.join(".gemini").join("antigravity-cli").join("brain");
+    analyze_sessions_at(&brain_dir)
+}
 
+fn analyze_sessions_at(brain_dir: &Path) -> io::Result<()> {
     if !brain_dir.is_dir() {
         println!(
             "No Antigravity brain sessions found at {}",
@@ -105,7 +108,8 @@ pub fn analyze_agy_sessions() -> io::Result<()> {
 
     for transcript in transcripts {
         if let Ok(file) = File::open(&transcript) {
-            for line in BufReader::new(file).lines().flatten() {
+            for line in BufReader::new(file).lines() {
+                let line = line?;
                 if let Ok(val) = serde_json::from_str::<Value>(&line) {
                     if let Some(content) = val.get("content").and_then(|s| s.as_str()) {
                         if content.len() > 100 && content.len() < 100_000 {
@@ -150,4 +154,21 @@ pub fn analyze_agy_sessions() -> io::Result<()> {
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::analyze_sessions_at;
+    use std::io;
+
+    #[test]
+    fn analysis_reports_transcript_read_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let logs = root.path().join("synthetic-session/.system_generated/logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(logs.join("transcript.jsonl"), b"\xff\n").unwrap();
+
+        let error = analyze_sessions_at(root.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
 }

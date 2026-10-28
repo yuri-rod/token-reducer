@@ -5,6 +5,7 @@
 - Release generated stack-frame omission summaries after each log reduction instead
   of leaking their memory during repeated library or MCP calls.
 - Iterate log and diff input directly without collecting an intermediate line vector.
+- Return AGY transcript line-read and UTF-8 errors instead of silently skipping them.
 - Add an allocation regression that preserves the exact reduced output and checks
   both intermediate and trailing stack-frame summaries.
 
