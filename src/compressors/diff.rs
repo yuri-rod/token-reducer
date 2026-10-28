@@ -2,7 +2,6 @@ use super::ansi::strip_ansi;
 
 pub fn compress_diff(input: &str) -> String {
     let clean = strip_ansi(input);
-    let lines: Vec<&str> = clean.lines().collect();
 
     let mut output_lines = Vec::new();
     let mut current_file = String::new();
@@ -20,7 +19,7 @@ pub fn compress_diff(input: &str) -> String {
         "composer.lock",
     ];
 
-    for line in lines {
+    for line in clean.lines() {
         if line.starts_with("diff --git ") {
             if skipping_large_file {
                 output_lines.push(format!(
@@ -33,8 +32,11 @@ pub fn compress_diff(input: &str) -> String {
             }
 
             current_file = line.split_whitespace().last().unwrap_or("").to_string();
-            let is_lockfile = lockfile_names.iter().any(|name| current_file.ends_with(name));
-            let is_minified = current_file.ends_with(".min.js") || current_file.ends_with(".min.css");
+            let is_lockfile = lockfile_names
+                .iter()
+                .any(|name| current_file.ends_with(name));
+            let is_minified =
+                current_file.ends_with(".min.js") || current_file.ends_with(".min.css");
 
             if is_lockfile || is_minified {
                 skipping_large_file = true;

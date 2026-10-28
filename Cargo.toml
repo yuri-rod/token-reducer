@@ -1,6 +1,6 @@
 [package]
 name = "token-reducer"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Summarize logs, command output, JSON arrays, and Git diffs for coding-agent context"
 repository = "https://github.com/yuri-rod/token-reducer"

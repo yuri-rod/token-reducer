@@ -86,6 +86,7 @@ The optional `agy install` command writes or replaces its skill file under the u
 - [Reducers](src/compressors) contain the log, diff, JSON, and ANSI transformations and their unit tests.
 - [CLI execution](src/main.rs) captures command output and preserves process outcomes.
 - [Command regressions](tests/command_failures.rs) check successful and failed child commands, Git errors, and MCP execution failures using synthetic inputs.
+- [Allocation regression](tests/log_allocations.rs) checks that repeated stack-frame reductions release their temporary storage.
 - [MCP transport](src/mcp.rs) exposes the same reducers over stdio.
 
 ```sh

@@ -1,17 +1,18 @@
+use std::borrow::Cow;
+
 use super::ansi::strip_ansi;
 
 pub fn compress_logs(input: &str) -> String {
     let clean = strip_ansi(input);
-    let lines: Vec<&str> = clean.lines().collect();
 
-    let mut output_lines = Vec::new();
+    let mut output_lines: Vec<Cow<'_, str>> = Vec::new();
     let mut omitted_passing_tests = 0;
     let mut omitted_internal_frames = 0;
     let mut warning_count = 0;
 
     let mut in_failure_block = false;
 
-    for line in lines {
+    for line in clean.lines() {
         let trimmed = line.trim();
 
         // 1. Filter passing test noise
@@ -41,7 +42,7 @@ pub fn compress_logs(input: &str) -> String {
         if trimmed.starts_with("warning:") || trimmed.starts_with("warning[") {
             warning_count += 1;
             if warning_count <= 2 {
-                output_lines.push(line);
+                output_lines.push(line.into());
             }
             continue;
         }
@@ -58,32 +59,32 @@ pub fn compress_logs(input: &str) -> String {
             omitted_internal_frames += 1;
             continue;
         } else if omitted_internal_frames > 0 {
-            output_lines.push(Box::leak(
+            output_lines.push(
                 format!(
                     "    [... {} internal runtime stack frames omitted ...]",
                     omitted_internal_frames
                 )
-                .into_boxed_str(),
-            ));
+                .into(),
+            );
             omitted_internal_frames = 0;
         }
 
         // Skip excessive empty lines
-        if trimmed.is_empty() && output_lines.last().map_or(false, |l| l.trim().is_empty()) {
+        if trimmed.is_empty() && output_lines.last().is_some_and(|l| l.trim().is_empty()) {
             continue;
         }
 
-        output_lines.push(line);
+        output_lines.push(line.into());
     }
 
     if omitted_internal_frames > 0 {
-        output_lines.push(Box::leak(
+        output_lines.push(
             format!(
                 "    [... {} internal runtime stack frames omitted ...]",
                 omitted_internal_frames
             )
-            .into_boxed_str(),
-        ));
+            .into(),
+        );
     }
 
     let mut result = String::new();
