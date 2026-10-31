@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
-use std::process::Command;
 
 use crate::compressors::{self, ContentType};
 use crate::tokens::TokenStats;
@@ -79,11 +78,13 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
                     },
                     {
                         "name": "reduce_exec",
-                        "description": "Execute a shell command and return compressed output saving tokens",
+                        "description": "Execute a shell command safely and return compressed output saving tokens",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "command": { "type": "string", "description": "Shell command to run" }
+                                "command": { "type": "string", "description": "Shell command to run" },
+                                "timeout_seconds": { "type": "integer", "description": "Maximum execution time in seconds (default: 30)" },
+                                "max_output_bytes": { "type": "integer", "description": "Maximum output bytes to capture (default: 5242880 = 5MiB)" }
                             },
                             "required": ["command"]
                         }
@@ -128,35 +129,31 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
 
                 "reduce_exec" => {
                     let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                    let output = if cfg!(target_os = "windows") {
-                        Command::new("cmd").args(["/C", command]).output()
-                    } else {
-                        Command::new("sh").args(["-c", command]).output()
+                    let timeout = args
+                        .get("timeout_seconds")
+                        .and_then(|v| v.as_u64())
+                        .map(std::time::Duration::from_secs)
+                        .unwrap_or(crate::executor::DEFAULT_TIMEOUT);
+                    let max_output_bytes = args
+                        .get("max_output_bytes")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize)
+                        .unwrap_or(crate::executor::DEFAULT_MAX_OUTPUT_BYTES);
+
+                    let exec_config = crate::executor::ExecConfig {
+                        timeout,
+                        max_output_bytes,
                     };
 
-                    let (stdout_str, stderr_str, failed) = match output {
-                        Ok(out) => (
-                            String::from_utf8_lossy(&out.stdout).to_string(),
-                            String::from_utf8_lossy(&out.stderr).to_string(),
-                            !out.status.success(),
-                        ),
-                        Err(e) => (String::new(), format!("Execution error: {}", e), true),
-                    };
-
-                    let combined = if stderr_str.is_empty() {
-                        stdout_str
-                    } else {
-                        format!("{}\n{}", stdout_str, stderr_str)
-                    };
-
-                    let compressed = compressors::compress(&combined, ContentType::Auto);
-                    let stats = TokenStats::compute(&combined, &compressed);
+                    let exec_result = crate::executor::execute_bounded(command, &exec_config);
+                    let compressed = compressors::compress(&exec_result.combined, ContentType::Auto);
+                    let stats = TokenStats::compute(&exec_result.combined, &compressed);
 
                     Some(json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": {
-                            "isError": failed,
+                            "isError": exec_result.failed,
                             "content": [
                                 {
                                     "type": "text",

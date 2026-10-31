@@ -77,7 +77,9 @@ Configure a local MCP client to launch the installed executable:
 }
 ```
 
-The server provides `reduce_text` and `reduce_exec`. `reduce_exec` runs a shell command with the server process's permissions and reports command failure with `isError: true`. Enable it only for clients allowed to execute local commands. There is no sandbox, timeout, or output-size limit. The server accepts newline-delimited JSON-RPC over stdin/stdout and advertises protocol version `2024-11-05`; compatibility with a particular client must be checked there.
+The server provides `reduce_text` and `reduce_exec`. `reduce_exec` runs a shell command with the server process's permissions and reports command failure with `isError: true`.
+
+Security boundary: `reduce_exec` is designed for trusted local developer assistants (such as Claude Code, Codex, or Cursor). It does not provide OS sandboxing or filesystem isolation. It enforces execution safety limits: a 30-second execution timeout (configurable via `timeout_seconds`), bounded streaming capture up to 5 MiB (configurable via `max_output_bytes`), and process-tree termination on timeout or overflow to prevent runaway child processes and memory exhaustion. The server accepts newline-delimited JSON-RPC over stdin/stdout and advertises protocol version `2024-11-05`.
 
 The optional `agy install` command writes or replaces its skill file under the user's Gemini plugin directory. `agy analyze` reads up to five discovered local transcript files. Neither command is required for the CLI or synthetic examples above.
 

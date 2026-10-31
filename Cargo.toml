@@ -14,5 +14,8 @@ regex = "1.10"
 colored = "2.1"
 tiktoken-rs = "0.5"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.10"
