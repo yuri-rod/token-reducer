@@ -97,4 +97,14 @@ cargo run --locked --release -- benchmark
 
 `benchmark` runs three built-in synthetic samples and prints their tokenizer counts. It does not measure throughput or represent production workloads. CI runs the checks on Linux and macOS. Contributions should include a failing example for a reduction bug and preserve diagnostics users need to understand failures.
 
-The manifest declares the MIT license. This checkout currently has no standalone license file.
+## Technical roadmap
+
+Realistic planned engineering milestones:
+
+1. Tree-sitter AST syntax pruning for code diffs (12 hours): Add language grammars for Rust, TypeScript, and Python to collapse unchanged internal method bodies while preserving exported declarations and type signatures.
+2. Streaming pipe reduction (8 hours): Process large build and test log outputs as continuous streams with fixed memory buffers instead of buffering the full stdout in RAM.
+3. Structured JSON sample distillation (6 hours): When truncating uniform arrays, emit a lightweight schema descriptor with field types and exemplar values instead of plain textual omission markers.
+
+## License
+
+[MIT License](LICENSE).
