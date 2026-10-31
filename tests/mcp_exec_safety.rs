@@ -120,3 +120,33 @@ fn mcp_reduce_exec_respects_custom_timeout_and_limit() {
         .unwrap();
     assert!(text.contains("timed out"));
 }
+
+#[cfg(unix)]
+#[test]
+fn descendants_holding_pipe_are_terminated_and_do_not_hang() {
+    let config = ExecConfig {
+        timeout: Duration::from_secs(10),
+        max_output_bytes: 1024 * 1024,
+    };
+    let start = Instant::now();
+    // Direct shell exits 0 immediately, while background child holds stdout open
+    let result = execute_bounded("sh -c 'sleep 30 & exit 0'", &config);
+    let elapsed = start.elapsed();
+
+    // Must not block for 30s. Should finish in under 2 seconds.
+    assert!(elapsed < Duration::from_secs(2));
+    assert_eq!(result.exit_code, Some(0));
+}
+
+#[test]
+fn hard_ceilings_enforced_on_exec_config() {
+    use token_reducer::executor::{HARD_MAX_OUTPUT_BYTES, HARD_MAX_TIMEOUT};
+
+    let excessive = ExecConfig::new(Duration::from_secs(999_999), 1024 * 1024 * 1024);
+    assert_eq!(excessive.timeout, HARD_MAX_TIMEOUT);
+    assert_eq!(excessive.max_output_bytes, HARD_MAX_OUTPUT_BYTES);
+
+    let zero = ExecConfig::new(Duration::from_secs(0), 0);
+    assert_eq!(zero.timeout, token_reducer::executor::DEFAULT_TIMEOUT);
+    assert_eq!(zero.max_output_bytes, token_reducer::executor::DEFAULT_MAX_OUTPUT_BYTES);
+}

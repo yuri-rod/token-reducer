@@ -6,7 +6,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+pub const HARD_MAX_TIMEOUT: Duration = Duration::from_secs(120);
 pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 5 * 1024 * 1024; // 5 MiB
+pub const HARD_MAX_OUTPUT_BYTES: usize = 20 * 1024 * 1024; // 20 MiB
 
 #[derive(Debug, Clone)]
 pub struct ExecConfig {
@@ -14,12 +16,28 @@ pub struct ExecConfig {
     pub max_output_bytes: usize,
 }
 
+impl ExecConfig {
+    pub fn new(timeout: Duration, max_output_bytes: usize) -> Self {
+        let bounded_timeout = if timeout.is_zero() {
+            DEFAULT_TIMEOUT
+        } else {
+            timeout.min(HARD_MAX_TIMEOUT)
+        };
+        let bounded_bytes = if max_output_bytes == 0 {
+            DEFAULT_MAX_OUTPUT_BYTES
+        } else {
+            max_output_bytes.min(HARD_MAX_OUTPUT_BYTES)
+        };
+        Self {
+            timeout: bounded_timeout,
+            max_output_bytes: bounded_bytes,
+        }
+    }
+}
+
 impl Default for ExecConfig {
     fn default() -> Self {
-        Self {
-            timeout: DEFAULT_TIMEOUT,
-            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
-        }
+        Self::new(DEFAULT_TIMEOUT, DEFAULT_MAX_OUTPUT_BYTES)
     }
 }
 
@@ -111,11 +129,14 @@ pub fn execute_bounded(command_str: &str, config: &ExecConfig) -> ExecResult {
     let total_bytes = Arc::new(AtomicUsize::new(0));
     let overflowed = Arc::new(AtomicBool::new(false));
     let stop_flag = Arc::new(AtomicBool::new(false));
+    let stdout_done = Arc::new(AtomicBool::new(false));
+    let stderr_done = Arc::new(AtomicBool::new(false));
 
     // Spawn reader thread for stdout
     let total_stdout = Arc::clone(&total_bytes);
     let overflow_stdout = Arc::clone(&overflowed);
     let stop_stdout = Arc::clone(&stop_flag);
+    let done_stdout = Arc::clone(&stdout_done);
     let stdout_handle = thread::spawn(move || {
         let mut buffer = Vec::new();
         if let Some(mut pipe) = stdout_pipe {
@@ -141,6 +162,7 @@ pub fn execute_bounded(command_str: &str, config: &ExecConfig) -> ExecResult {
                 }
             }
         }
+        done_stdout.store(true, Ordering::SeqCst);
         buffer
     });
 
@@ -148,6 +170,7 @@ pub fn execute_bounded(command_str: &str, config: &ExecConfig) -> ExecResult {
     let total_stderr = Arc::clone(&total_bytes);
     let overflow_stderr = Arc::clone(&overflowed);
     let stop_stderr = Arc::clone(&stop_flag);
+    let done_stderr = Arc::clone(&stderr_done);
     let stderr_handle = thread::spawn(move || {
         let mut buffer = Vec::new();
         if let Some(mut pipe) = stderr_pipe {
@@ -173,6 +196,7 @@ pub fn execute_bounded(command_str: &str, config: &ExecConfig) -> ExecResult {
                 }
             }
         }
+        done_stderr.store(true, Ordering::SeqCst);
         buffer
     });
 
@@ -203,6 +227,22 @@ pub fn execute_bounded(command_str: &str, config: &ExecConfig) -> ExecResult {
         kill_process_tree(pid);
         let _ = child.kill();
         let _ = child.wait();
+    } else {
+        // Main process exited. Give up to 250ms for normal EOF pipe drain
+        let drain_start = Instant::now();
+        while (!stdout_done.load(Ordering::SeqCst) || !stderr_done.load(Ordering::SeqCst))
+            && drain_start.elapsed() < Duration::from_millis(250)
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        // If reader threads are still blocked, background descendants inherited stdout/stderr.
+        // Terminate the process group to close inherited pipe handles and prevent hang.
+        if !stdout_done.load(Ordering::SeqCst) || !stderr_done.load(Ordering::SeqCst) {
+            stop_flag.store(true, Ordering::SeqCst);
+            kill_process_tree(pid);
+        }
+        let _ = child.wait();
     }
 
     let stdout_bytes = stdout_handle.join().unwrap_or_default();
@@ -226,7 +266,7 @@ pub fn execute_bounded(command_str: &str, config: &ExecConfig) -> ExecResult {
         ));
         true
     } else {
-        exit_code.map_or(true, |code| code != 0)
+        exit_code != Some(0)
     };
 
     let mut combined = if stderr_str.is_empty() {

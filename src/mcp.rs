@@ -140,10 +140,7 @@ fn handle_request(req: &JsonRpcRequest) -> Option<Value> {
                         .map(|v| v as usize)
                         .unwrap_or(crate::executor::DEFAULT_MAX_OUTPUT_BYTES);
 
-                    let exec_config = crate::executor::ExecConfig {
-                        timeout,
-                        max_output_bytes,
-                    };
+                    let exec_config = crate::executor::ExecConfig::new(timeout, max_output_bytes);
 
                     let exec_result = crate::executor::execute_bounded(command, &exec_config);
                     let compressed = compressors::compress(&exec_result.combined, ContentType::Auto);
