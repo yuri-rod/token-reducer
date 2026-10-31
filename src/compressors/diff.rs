@@ -5,6 +5,7 @@ pub fn compress_diff(input: &str) -> String {
 
     let mut output_lines = Vec::new();
     let mut current_file = String::new();
+    let mut current_is_lockfile = false;
     let mut skipping_large_file = false;
     let mut skipped_additions = 0;
     let mut skipped_deletions = 0;
@@ -15,6 +16,9 @@ pub fn compress_diff(input: &str) -> String {
         "pnpm-lock.yaml",
         "yarn.lock",
         "poetry.lock",
+        "uv.lock",
+        "bun.lockb",
+        "flake.lock",
         "go.sum",
         "composer.lock",
     ];
@@ -22,11 +26,13 @@ pub fn compress_diff(input: &str) -> String {
     for line in clean.lines() {
         if line.starts_with("diff --git ") {
             if skipping_large_file {
+                let label = if current_is_lockfile { "Lockfile" } else { "Minified asset" };
                 output_lines.push(format!(
-                    "    [Lockfile {} delta collapsed: +{}/-{} lines]",
-                    current_file, skipped_additions, skipped_deletions
+                    "    [{} {} delta collapsed: +{}/-{} lines]",
+                    label, current_file, skipped_additions, skipped_deletions
                 ));
                 skipping_large_file = false;
+                current_is_lockfile = false;
                 skipped_additions = 0;
                 skipped_deletions = 0;
             }
@@ -40,6 +46,7 @@ pub fn compress_diff(input: &str) -> String {
 
             if is_lockfile || is_minified {
                 skipping_large_file = true;
+                current_is_lockfile = is_lockfile;
                 output_lines.push(line.to_string());
                 continue;
             }
@@ -58,9 +65,10 @@ pub fn compress_diff(input: &str) -> String {
     }
 
     if skipping_large_file {
+        let label = if current_is_lockfile { "Lockfile" } else { "Minified asset" };
         output_lines.push(format!(
-            "    [Lockfile {} delta collapsed: +{}/-{} lines]",
-            current_file, skipped_additions, skipped_deletions
+            "    [{} {} delta collapsed: +{}/-{} lines]",
+            label, current_file, skipped_additions, skipped_deletions
         ));
     }
 
@@ -95,5 +103,23 @@ index abc..def 100644
         let compressed = compress_diff(raw);
         assert!(compressed.contains("Lockfile b/Cargo.lock delta collapsed: +2/-2 lines"));
         assert!(compressed.contains("fn new() {}"));
+    }
+
+    #[test]
+    fn test_compress_diff_minified_and_uv_lock() {
+        let raw = r#"
+diff --git a/uv.lock b/uv.lock
+--- a/uv.lock
++++ b/uv.lock
++new_dep = "1.0.0"
+-old_dep = "0.9.0"
+diff --git a/dist/bundle.min.js b/dist/bundle.min.js
+--- a/dist/bundle.min.js
++++ b/dist/bundle.min.js
++minified content
+"#;
+        let compressed = compress_diff(raw);
+        assert!(compressed.contains("Lockfile b/uv.lock delta collapsed: +1/-1 lines"));
+        assert!(compressed.contains("Minified asset b/dist/bundle.min.js delta collapsed: +1/-0 lines"));
     }
 }
